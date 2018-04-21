@@ -4,8 +4,7 @@
   "description": "An AWS Cognito POC",
   "main": "index.js",
   "scripts": {
-    "deploy":
-      "aws s3 cp ./dist/ s3://apple-turnover/ --recursive --acl public-read",
+    "deploy": "aws s3 cp ./dist/ s3://apple-turnover/ --recursive --acl public-read",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -17,5 +16,12 @@
   "bugs": {
     "url": "https://github.com/devonChurch/apple-turnover/issues"
   },
-  "homepage": "https://github.com/devonChurch/apple-turnover#readme"
+  "homepage": "https://github.com/devonChurch/apple-turnover#readme",
+  "dependencies": {
+    "amazon-cognito-auth-js": "^1.1.9"
+  },
+  "devDependencies": {
+    "webpack": "^4.6.0",
+    "webpack-cli": "^2.0.15"
+  }
 }
