@@ -4,7 +4,8 @@
   "description": "An AWS Cognito POC",
   "main": "index.js",
   "scripts": {
-    "deploy": "aws s3 cp ./dist/ s3://apple-turnover/ --recursive",
+    "deploy":
+      "aws s3 cp ./dist/ s3://apple-turnover/ --recursive --acl public-read",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
