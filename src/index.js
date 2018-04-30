@@ -12,7 +12,7 @@ import AWS from "aws-sdk";
 import "./foo";
 import "./bar";
 
-const TEMP_VERSION = "0.38";
+const TEMP_VERSION = "0.41";
 const REGION = "us-east-1";
 const USER_POOL_ID = "us-east-1_FxcXhUibI";
 const IDENTITY_POOL_ID = "us-east-1:3a69f09f-23d7-48d9-8112-b93e0a513e97";
@@ -92,33 +92,17 @@ const SignedinContent = ({ currentImage, updateImage }) => (
 
     <div className="container-fluid pt-5">
       <div className="row">
-        <div className="col-4">
-          <Thumbnail
-            source={`xxxxxx/${currentImage}.jpg`}
-            altText="plant thumbnail"
-            title="plant"
-            onClick={() => updateImage("plant")}
-            isSelected={currentImage === "plant"}
-          />
-        </div>
-        <div className="col-4">
-          <Thumbnail
-            source={`xxxxxx/${currentImage}.jpg`}
-            altText="sunset thumbnail"
-            title="sunset"
-            onClick={() => updateImage("sunset")}
-            isSelected={currentImage === "sunset"}
-          />
-        </div>
-        <div className="col-4">
-          <Thumbnail
-            source={`xxxxxx/${currentImage}.jpg`}
-            altText="stream thumbnail"
-            title="stream"
-            onClick={() => updateImage("stream")}
-            isSelected={currentImage === "stream"}
-          />
-        </div>
+        {["xxxxx", "yyyyyy", "zzzzzz"].map(name => (
+          <div className="col-4">
+            <Thumbnail
+              source={`xxxxxx/${name}.jpg`}
+              altText={`${name} thumbnail`}
+              title={name}
+              onClick={() => updateImage(name)}
+              isSelected={currentImage === name}
+            />
+          </div>
+        ))}
       </div>
     </div>
   </main>
@@ -151,6 +135,12 @@ const Loading = () => (
   </div>
 );
 
+const Alert = ({ message, sentiment }) => (
+  <div class={`alert alert-${sentiment}`} role="alert">
+    {message}
+  </div>
+);
+
 class Application extends React.Component {
   constructor() {
     console.log("Application");
@@ -158,39 +148,36 @@ class Application extends React.Component {
     this.user = null;
     this.dynamoClient = null;
     this.auth = this.createAuth();
+    this.isSignedIn = this.auth.isUserSignedIn();
     this.updateImage = this.updateImage.bind(this);
     this.updateStatus = this.updateStatus.bind(this);
     this.onAuthSuccess = this.onAuthSuccess.bind(this);
     this.onAuthFailure = this.onAuthFailure.bind(this);
     this.setCredentials = this.setCredentials.bind(this);
+    this.alertProps = this.createAlertProps();
     this.state = {
       currentStatus: "loading",
       currentImage: ""
     };
 
-    if (this.auth.isUserSignedIn()) {
-      this.state.currentStatus = "signedIn";
-      // this.user = this.auth.signInUserSession;
-      // this.auth.setState();
-      // this.auth.state;
-
+    if (this.isSignedIn) {
       const { href } = window.location;
+      this.state.currentStatus = "signedIn";
       this.auth.parseCognitoWebResponse(href);
-
-      console.log("this.auth.getSession()", this.auth.getSession());
-      console.log("this.auth.getLastUser()", this.auth.getLastUser());
-      console.log("this.auth.getCurrentUser()", this.auth.getCurrentUser());
-
-      // signInUserSession
-      // this.setCredentials()
-      //   .then(() => this.createDynamoClient())
-      //   .then(() => this.getUserImage())
-      //   .then(
-      // data => console.log("got item", data) || this.updateImage(data.image);
-      //   );
     } else {
       this.state.currentStatus = "signedOut";
     }
+  }
+
+  // prettier-ignore
+  createAlertProps() {
+    const { search } = window.location;
+    const { isSignedIn } = this;
+    const params = new URLSearchParams(search);
+    const sentiment = params.has("sentiment") ? params.get("sentiment") : isSignedIn ? "success" : "warning";
+    const message = params.has("message") ? params.get("message") : isSignedIn ? "You are signed in" : "You need to sign in";
+    console.log({search, isSignedIn, s:params.get("sentiment"), m: params.get("message"), sentiment, message})
+    return { sentiment, message };
   }
 
   createAuth() {
@@ -206,7 +193,8 @@ class Application extends React.Component {
         "aws.cognito.signin.user.admin"
       ],
       RedirectUriSignIn: "https://d1ebj83u34dou6.cloudfront.net/",
-      RedirectUriSignOut: "https://d1ebj83u34dou6.cloudfront.net/signout/",
+      RedirectUriSignOut:
+        "https://d1ebj83u34dou6.cloudfront.net/?message=You+have+been+signed+out&sentiment=danger",
       UserPoolId: USER_POOL_ID
     });
 
@@ -306,7 +294,7 @@ class Application extends React.Component {
 
   render() {
     const { currentStatus, currentImage } = this.state;
-    const { auth } = this;
+    const { auth, alertProps } = this;
     const isLoading = currentStatus === "loading";
     const isSignedIn = currentStatus === "signedIn";
     const isSignedOut = currentStatus === "signedOut";
@@ -322,6 +310,7 @@ class Application extends React.Component {
 
     return isSignedIn ? (
       <div>
+        <Alert {...alertProps} />
         <Navigation auth={auth} />
         <SignedinContent
           auth={auth}
@@ -331,6 +320,7 @@ class Application extends React.Component {
       </div>
     ) : isSignedOut ? (
       <div>
+        <Alert {...alertProps} />
         <SignedoutContent auth={auth} />
       </div>
     ) : (
