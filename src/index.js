@@ -8,21 +8,23 @@ import {
 } from "amazon-cognito-identity-js";
 import { PureComponent } from "react";
 import AWS from "aws-sdk";
-// import DynamoDB from "aws-sdk/clients/dynamodb"; // AWS.DynamoDB
-import "./foo";
-import "./bar";
 
-const TEMP_VERSION = "0.41";
+const TEMP_VERSION = "0.48";
 const REGION = "us-east-1";
 const USER_POOL_ID = "us-east-1_FxcXhUibI";
 const IDENTITY_POOL_ID = "us-east-1:3a69f09f-23d7-48d9-8112-b93e0a513e97";
 const CLIENT_ID = "7ra42ecc2c3vgmvq4sel1j8hns";
 const LOGIN_KEY = `cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}`;
 const TABLE_NAME = "apple-turnover";
+const PUBLIC_BUCKET = "apple-turnover-private";
+const PRIVATE_BUCKET = "apple-turnover-private";
+const PLACE_HOLDER_HERO = "/img/placeholder-hero.png";
+const PLACE_HOLDER_THUMBNAIL = "/img/placeholder-thumbnail.png";
+const BASE_URL = "https://d1ebj83u34dou6.cloudfront.net";
+const COGNITO_DOMAIN = "apple-turnover.auth.us-east-1.amazoncognito.com";
+const EXPIRES = 60; // 1 minute.
 
 AWS.config.region = REGION;
-
-console.log(`main ${TEMP_VERSION}`);
 
 const Thumbnail = ({ source, altText, title, onClick, isSelected }) => (
   <div className="card">
@@ -50,10 +52,7 @@ const SignedoutContent = ({ auth }) => (
           <h1 className="display-4">Hello,</h1>
           <p>Please signin.</p>
           <button
-            onClick={() => {
-              console.log("get in");
-              auth.getSession();
-            }}
+            onClick={() => auth.getSession()}
             type="button"
             className="btn btn-primary"
           >
@@ -65,24 +64,25 @@ const SignedoutContent = ({ auth }) => (
   </main>
 );
 
-const SignedinContent = ({ currentImage, updateImage }) => (
+const SignedinContent = ({ currentImage, updateImage, hero, thumbnails }) => (
   <main>
     <div className="container-fluid pt-5">
-      <div className="row">
-        <div className="col-sm">
+      <div className="row justify-content-md-center">
+        <div className="col col-md-8 col-lg-6">
           <h1 className="display-4">Welcome back,</h1>
           <p>Please select your preferred image.</p>
         </div>
       </div>
     </div>
 
-    {currentImage && (
+    {hero && (
       <div className="container-fluid pt-5">
-        <div className="row">
-          <div className="col">
+        <div className="row justify-content-md-center">
+          <div className="col col-md-10 col-lg-8">
             <img
-              src={`xxxxxxx/${currentImage}.jpg`}
-              class="img-fluid"
+              src={hero || PLACE_HOLDER_HERO}
+              style={{ width: "100%" }}
+              class="img-fluid img-thumbnail"
               alt={`${currentImage} hero`}
             />
           </div>
@@ -91,15 +91,15 @@ const SignedinContent = ({ currentImage, updateImage }) => (
     )}
 
     <div className="container-fluid pt-5">
-      <div className="row">
-        {["xxxxx", "yyyyyy", "zzzzzz"].map(name => (
-          <div className="col-4">
+      <div className="row justify-content-md-center">
+        {Object.keys(thumbnails).map(key => (
+          <div className="col-4 col-md-3 col-lg-2">
             <Thumbnail
-              source={`xxxxxx/${name}.jpg`}
-              altText={`${name} thumbnail`}
-              title={name}
-              onClick={() => updateImage(name)}
-              isSelected={currentImage === name}
+              source={thumbnails[key] || PLACE_HOLDER_THUMBNAIL}
+              altText={`${key} thumbnail`}
+              title={key}
+              onClick={() => updateImage(key)}
+              isSelected={currentImage === key}
             />
           </div>
         ))}
@@ -111,10 +111,7 @@ const SignedinContent = ({ currentImage, updateImage }) => (
 const Navigation = ({ auth }) => (
   <nav className="navbar navbar-dark bg-primary">
     <button
-      onClick={() => {
-        console.log("get out");
-        auth.signOut();
-      }}
+      onClick={() => auth.signOut()}
       type="button"
       className="btn btn-outline-light btn-sm"
     >
@@ -136,17 +133,17 @@ const Loading = () => (
 );
 
 const Alert = ({ message, sentiment }) => (
-  <div class={`alert alert-${sentiment}`} role="alert">
+  <div class={`alert alert-${sentiment} mb-0`} role="alert">
     {message}
   </div>
 );
 
 class Application extends React.Component {
   constructor() {
-    console.log("Application");
     super();
     this.user = null;
     this.dynamoClient = null;
+    this.s3Client = null;
     this.auth = this.createAuth();
     this.isSignedIn = this.auth.isUserSignedIn();
     this.updateImage = this.updateImage.bind(this);
@@ -157,13 +154,15 @@ class Application extends React.Component {
     this.alertProps = this.createAlertProps();
     this.state = {
       currentStatus: "loading",
-      currentImage: ""
+      currentImage: "",
+      hero: "",
+      thumbnails: {}
     };
 
     if (this.isSignedIn) {
       const { href } = window.location;
       this.state.currentStatus = "signedIn";
-      this.auth.parseCognitoWebResponse(href);
+      this.auth.getSession();
     } else {
       this.state.currentStatus = "signedOut";
     }
@@ -176,15 +175,62 @@ class Application extends React.Component {
     const params = new URLSearchParams(search);
     const sentiment = params.has("sentiment") ? params.get("sentiment") : isSignedIn ? "success" : "warning";
     const message = params.has("message") ? params.get("message") : isSignedIn ? "You are signed in" : "You need to sign in";
-    console.log({search, isSignedIn, s:params.get("sentiment"), m: params.get("message"), sentiment, message})
+
     return { sentiment, message };
+  }
+
+  getHeroUrl(image) {
+    return image
+      ? new Promise((resolve, reject) => {
+          this.s3Client.getSignedUrl(
+            "getObject",
+            {
+              Key: `${image}-hero.jpg`,
+              Bucket: PRIVATE_BUCKET,
+              Expires: EXPIRES
+            },
+            (error, response) => {
+              if (error) reject(error);
+              resolve(response);
+            }
+          );
+        }).then(url => {
+          this.setState(Object.assign({}, this.state, { hero: url }));
+        })
+      : Promise.resolve();
+  }
+
+  getThumbnailUrls() {
+    const requests = ["plant", "sunset", "stream"].map(
+      name =>
+        new Promise((resolve, reject) => {
+          this.s3Client.getSignedUrl(
+            "getObject",
+            {
+              Key: `${name}-thumb.jpg`,
+              Bucket: PRIVATE_BUCKET,
+              Expires: EXPIRES
+            },
+            (error, response) => {
+              if (error) reject(error);
+              resolve(response);
+            }
+          );
+        })
+    );
+
+    return Promise.all(requests).then(urls => {
+      const [plant, sunset, stream] = urls;
+      const thumbnails = { plant, sunset, stream };
+      this.setState(Object.assign({}, this.state, { thumbnails }));
+    });
   }
 
   createAuth() {
     const { href } = window.location;
     const auth = new CognitoAuth({
       ClientId: CLIENT_ID,
-      AppWebDomain: "apple-turnover.auth.us-east-1.amazoncognito.com",
+      AppWebDomain: COGNITO_DOMAIN,
       TokenScopesArray: [
         "phone",
         "email",
@@ -192,9 +238,8 @@ class Application extends React.Component {
         "openid",
         "aws.cognito.signin.user.admin"
       ],
-      RedirectUriSignIn: "https://d1ebj83u34dou6.cloudfront.net/",
-      RedirectUriSignOut:
-        "https://d1ebj83u34dou6.cloudfront.net/?message=You+have+been+signed+out&sentiment=danger",
+      RedirectUriSignIn: `${BASE_URL}/`,
+      RedirectUriSignOut: `${BASE_URL}/?message=You+have+been+signed+out&sentiment=danger`,
       UserPoolId: USER_POOL_ID
     });
 
@@ -204,14 +249,10 @@ class Application extends React.Component {
     };
     auth.parseCognitoWebResponse(href);
 
-    console.log("auth", auth);
-
     return auth;
   }
 
   onAuthSuccess(user) {
-    console.log("onAuthSuccess", user);
-    console.log("onAuthSuccess (this)", this);
     this.user = user;
     this.setCredentials()
       .then(() => {
@@ -219,17 +260,22 @@ class Application extends React.Component {
         this.updateStatus(status);
         return Promise.resolve();
       })
-      .then(
-        () =>
-          this.dynamoClient ? Promise.resolve() : this.createDynamoClient()
-      )
-      .then(() => console.log("got credentials") || this.getUserImage())
-      .then(({ Item: { image } }) => this.updateImage(image))
+      .then(() => this.createDynamoClient())
+      .then(() => this.createS3Client())
+      .then(() => this.getUserImage())
+      .then(response => {
+        console.log("response", response);
+        const image = (response && response.Item && response.Item.image) || "";
+        this.setState(Object.assign({}, this.state, { currentImage: image }));
+        return Promise.resolve(image);
+      })
+      .then(image => this.getHeroUrl(image))
+      .then(() => this.getThumbnailUrls())
       .catch(error => console.error(error));
   }
 
   onAuthFailure(error) {
-    console.error("signin ERROR", error);
+    console.error(error);
   }
 
   createDynamoClient() {
@@ -237,8 +283,12 @@ class Application extends React.Component {
     return Promise.resolve();
   }
 
+  createS3Client() {
+    this.s3Client = new AWS.S3({ apiVersion: "2006-03-01" });
+    return Promise.resolve();
+  }
+
   updateImage(currentImage) {
-    console.log("updateImage", currentImage);
     this.setState(Object.assign({}, this.state, { currentImage }));
 
     const params = {
@@ -248,6 +298,8 @@ class Application extends React.Component {
         image: currentImage
       }
     };
+
+    this.getHeroUrl(currentImage);
 
     this.dynamoClient
       .put(params)
@@ -260,13 +312,16 @@ class Application extends React.Component {
   }
 
   setCredentials() {
-    console.log("setCredentials");
-    AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+    console.log("this.user", this.user);
+    const params = {
       IdentityPoolId: IDENTITY_POOL_ID,
-      Logins: {
-        [`${LOGIN_KEY}`]: this.user.getIdToken().getJwtToken()
-      }
-    });
+      Logins: { [`${LOGIN_KEY}`]: this.user.getIdToken().getJwtToken() }
+    };
+    let credentials = new AWS.CognitoIdentityCredentials(params);
+
+    credentials.clearCachedId();
+    credentials = new AWS.CognitoIdentityCredentials(params);
+    AWS.config.credentials = credentials;
 
     return new Promise((resolve, reject) => {
       AWS.config.credentials.refresh(error => {
@@ -283,30 +338,19 @@ class Application extends React.Component {
     var params = {
       TableName: TABLE_NAME,
       Key: {
-        userid: this.auth.username // "7f364262-bce1-4567-9f49-e2da8b383360"
+        userid: this.auth.username
       }
     };
-
-    console.log("getUserImage", params);
 
     return this.dynamoClient.get(params).promise();
   }
 
   render() {
-    const { currentStatus, currentImage } = this.state;
+    const { currentStatus, currentImage, hero, thumbnails } = this.state;
     const { auth, alertProps } = this;
     const isLoading = currentStatus === "loading";
     const isSignedIn = currentStatus === "signedIn";
     const isSignedOut = currentStatus === "signedOut";
-
-    console.log("is signed in", {
-      isLoading,
-      isSignedIn,
-      isSignedOut,
-      auth,
-      currentStatus,
-      currentImage
-    });
 
     return isSignedIn ? (
       <div>
@@ -316,6 +360,8 @@ class Application extends React.Component {
           auth={auth}
           currentImage={currentImage}
           updateImage={this.updateImage}
+          hero={hero}
+          thumbnails={thumbnails}
         />
       </div>
     ) : isSignedOut ? (
@@ -331,12 +377,8 @@ class Application extends React.Component {
   }
 }
 
-const init = () => {
+(() => {
   const $application = document.getElementById("app");
 
-  console.log("AWS", AWS);
-
   ReactDOM.render(<Application />, $application);
-};
-
-init();
+})();
